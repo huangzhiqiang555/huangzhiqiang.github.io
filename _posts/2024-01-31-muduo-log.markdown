@@ -11,8 +11,6 @@ tags:
     - log
 ---
 
-[TOC]
-
 # FixedBuffer:
 
 固定长度的内存块，创建对象时即`new`对应大小的内存，持有指针cur指向当前有效内存地址，对外提供append方法，以拷贝的方式追加写到内存块中；
@@ -41,14 +39,14 @@ self& operator<<(int)
 
 * Logger构造函数必须传入basefilename和line，透传至Impl；
 
-  ```C++
+  ```c++
    Logger(SourceFile file, int line);
    Logger(SourceFile file, int line, LogLevel level);
   ```
 
 *  两个静态方法：设置output和flush时的具体动作，默认输出到标准输出`stdout`中，可以调用`setOutput`和`setFlush`来修改输出流；
 
-  ```C++
+  ```c++
   void defaultOutput(const char* msg, int len)
   {
     size_t n = fwrite(msg, 1, len, stdout);
@@ -74,7 +72,7 @@ self& operator<<(int)
 
 * 持有一个LargeBufferPtrVertor，开启一个后台线程将BufferVertor中的数据写入到文件中。BufferVertor实际为Buffer指针，
 
-  ```C++
+  ```c++
   private:
   	const int flushInterval_; // 固定每隔一段时间刷新内容到日志文件
   	const string basename_; // 日志文件名前缀
@@ -85,4 +83,95 @@ self& operator<<(int)
   	BufferVector buffers_; // 构造时resize(16，nullptr)
   ```
 
-* append方法，即上诉`output`方法。将内容拷贝至`curBuffer_`中，如果满，则拷贝至`curBur_`
+* `append`方法，即上诉`output`方法。将内容拷贝至`curBuffer_`中，如果满，则将`curBuffer_`内存移交给`buffer_`。`curBuffer_`使用`nextBuffer_`内存；过程中全程***加锁***。
+
+  ```c++
+  void AsyncLogging::append(const char* logline, int len)
+  {
+      muduo::MutexLockGuard lock(mutex_);
+      if (currentBuffer_->avail() > len)
+      {
+        currentBuffer_->append(logline, len);
+      }
+      else
+      {
+        buffers_.push_back(std::move(currentBuffer_));
+  
+        if (nextBuffer_)
+        {
+          currentBuffer_ = std::move(nextBuffer_);
+         }
+        else
+        {
+          currentBuffer_.reset(new Buffer); // Rarely happens
+        }
+        currentBuffer_->append(logline, len);
+        cond_.notify();
+      }
+    }
+  ```
+
+  
+
+* `threadFunc`方法，后台处理函数；
+
+  * 提前创建newBuffer1，newBuffer2和buffersToWrite。newBuffer1，newBuffer1分别对应curBuffer和nextBuffer, 确保在每次写时他俩都不为空。buffersToWrite用于swap替换`buffer_`中的buffer指针，来实现加锁过程中的最小化操作；
+
+    ```c++
+    if (buffers_.empty())  // unusual usage!
+    {
+       cond_.waitForSeconds(flushInterval_);
+    }
+    buffers_.push_back(std::move(currentBuffer_));
+    currentBuffer_ = std::move(newBuffer1);
+    buffersToWrite.swap(buffers_);
+    if (!nextBuffer_)
+    {
+      nextBuffer_ = std::move(newBuffer2);
+    }
+    ```
+
+  * 将buffersToWrite中内容真正写到文件中，没有多线程处理，无需加锁。
+
+    ```c++
+    for (const auto& buffer : buffersToWrite)
+    {
+      // FIXME: use unbuffered stdio FILE ? or use ::writev ?
+      output.append(buffer->data(), buffer->length());
+    }
+    ```
+
+  * newBuffer1，newBuffer2在第一阶段时已经交出了内存，在下一次while(true)循环前提前new内存，优先使用刚刚已经写完的buffersToWrite。
+
+    ```c++
+    if (!newBuffer1)
+    {
+      assert(!buffersToWrite.empty());
+      newBuffer1 = std::move(buffersToWrite.back());  
+      buffersToWrite.pop_back();
+      newBuffer1->reset();
+    }
+    
+    if (!newBuffer2)
+    {
+      assert(!buffersToWrite.empty());
+      newBuffer2 = std::move(buffersToWrite.back());  
+      buffersToWrite.pop_back();
+      newBuffer2->reset();
+    }
+    ```
+
+    
+
+# 总结
+
+1. 每次输出日志时都会创建Logger对象，在析构时将format后的日志拷贝至curretBuffer，再添加到BufferVector中;
+
+2. 全部过程包含两次内存拷贝
+	1. 将`用户日志` 和`附属信息(日志等级，时间等)` format后拷贝至smallFixedBuffer。
+	2. Logger析构时将SmallBuffer中内容拷贝至currentBuffer;
+	3. 其余操作使用vector的swap和unique_ptr的reset方法来实现Buffer指针的切换；
+3. 最小化锁操作：
+	1. 第二次拷贝时加锁，只拷贝SmallBuffer，最大4K的数据；
+	2. 不直接将bufferVector中数据写入文件，而是swap到新的buffersToWrite中，在后台写文件；及时解锁。
+4. 保证newBuffer1，newBuffer2非空，但是不直接new Buffer，而是在buffersToWrite写文件完成后复用内存，避免重复的new/delete。
