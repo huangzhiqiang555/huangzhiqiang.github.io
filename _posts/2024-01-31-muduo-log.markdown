@@ -1,0 +1,88 @@
+---
+layout:     post
+title:      "Muduo-Log源码解析"
+subtitle:   ""
+date:       2024-01-31 00:00:00
+author:     "EricHuang"
+header-img: "img/post-bg-2015.jpg"
+catalog: true
+tags:
+    - muduo
+    - log
+---
+
+[TOC]
+
+# FixedBuffer:
+
+固定长度的内存块，创建对象时即`new`对应大小的内存，持有指针cur指向当前有效内存地址，对外提供append方法，以拷贝的方式追加写到内存块中；
+
+对外提供`SmallBuffer(4K)`和`LargeBuffer(4M)`两种size的buffer。
+
+# LogStream:
+
+持有一个SmallFixedBuffer，其核心为重写`<<`方法，将要输出的日志格式化为字符串。
+
+```c++
+self& operator<<(const string& v);
+self& operator<<(int)
+```
+
+# Logger
+
+* 实际持有LogStream对象实例，用于标准化日志内容，basefilename, line用于在打印日志时指示日志在哪个文件哪一行。在真正写入日志到buffer前，会先将线程号，时间，文件名，文件行等信息写入LogStream中。
+
+  ```c++
+  private:
+  	LogStream stream_;  
+  	int line_;
+  	SourceFile basename_;
+  ```
+
+* Logger构造函数必须传入basefilename和line，透传至Impl；
+
+  ```C++
+   Logger(SourceFile file, int line);
+   Logger(SourceFile file, int line, LogLevel level);
+  ```
+
+*  两个静态方法：设置output和flush时的具体动作，默认输出到标准输出`stdout`中，可以调用`setOutput`和`setFlush`来修改输出流；
+
+  ```C++
+  void defaultOutput(const char* msg, int len)
+  {
+    size_t n = fwrite(msg, 1, len, stdout);
+  }
+  void defaultFlush()
+  {
+    fflush(stdout);  // 系统调用，清空缓冲区
+  }
+  ```
+
+* 在析构时调用output方法，将LogStream中的字符输出。默认直接输出到标准输出中；
+
+* 定义`LOG_INFO`宏， 调用`<<`方法时实际上是创建了一个Logger对象，等待其析构时调用output方法；
+
+  ```c++
+  #define LOG_INFO if (muduo::Logger::logLevel() <= muduo::Logger::INFO) \
+    muduo::Logger(__FILE__, __LINE__).stream()
+  ```
+
+# AsyncLogging
+
+以上构成了一个同步日志输出到`stdout`的过程，异步日志的实现在同步日志的基础上，重写`output`和`flush`方法。
+
+* 持有一个LargeBufferPtrVertor，开启一个后台线程将BufferVertor中的数据写入到文件中。BufferVertor实际为Buffer指针，
+
+  ```C++
+  private:
+  	const int flushInterval_; // 固定每隔一段时间刷新内容到日志文件
+  	const string basename_; // 日志文件名前缀
+  	const off_t rollSize_;	// 日志文件满足一定size后切换到另一个文件；
+  	muduo::Thread thread_; // 后台写日志线程
+  	BufferPtr nextBuffer_; // 临时buffer,构造时new
+  	BufferPtr curBuffer_;  // 同上
+  	BufferVector buffers_; // 构造时resize(16，nullptr)
+  ```
+
+* append方法，即上诉`output`方法。将内容拷贝至`curBuffer_`中，如果满，则拷贝至`curBur_`
