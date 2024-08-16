@@ -34,6 +34,7 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
 enabled=0
 ```
+
 启用/etc/yum.repos.d/CentOS-Vault.repo, 文件后追加, 若文件版本以存在，则将enabled=0置为1
 ```shell
 # C7.9.2009
