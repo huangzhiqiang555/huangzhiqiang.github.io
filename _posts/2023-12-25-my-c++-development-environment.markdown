@@ -24,6 +24,7 @@ docker pull centos:7
 在基础镜像之上安装`git`, `ssh`,`curl`等
 2024年7月1日 官方停止维护 CentOS 7。该系统内置的 yum.repo 所使用的域名 mirrorlist.centos.org 已不再提供使用，需做一下配置
 1. 修改Centos-Base.repo, 增加一行`enabled=0`
+
 ```shell
 [base]
 name=CentOS-$releasever - Base
