@@ -23,7 +23,7 @@ docker pull centos:7
 
 在基础镜像之上安装`git`, `ssh`,`curl`等
 2024年7月1日 官方停止维护 CentOS 7。该系统内置的 yum.repo 所使用的域名 mirrorlist.centos.org 已不再提供使用，需做一下配置
-1. 修改Centos-Base.repo, 增加一行`enabled=0`
+修改Centos-Base.repo, 增加一行`enabled=0`
 
 ```shell
 [base]
@@ -34,7 +34,7 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
 enabled=0
 ```
-2. 启用/etc/yum.repos.d/CentOS-Vault.repo, 文件后追加, 若文件版本以存在，则将enabled=0置为1
+启用/etc/yum.repos.d/CentOS-Vault.repo, 文件后追加, 若文件版本以存在，则将enabled=0置为1
 ```shell
 # C7.9.2009
 [C7.9.2009-base]
@@ -86,7 +86,7 @@ yum install -y ssh vim unzip tar git curl wget cmake  \
 # 将CentOS-SCLo-scl.repo CentOS-SCLo-scl-rh.repo 中的baseurl替换为http://vault.centos.org/centos/7/sclo/$basearch/rh/
 yum install -y devtoolset-8 && echo "source /opt/rh/devtoolset-8/enable" >> /etc/bashrc
 yum install -y epel-release && yum install -y scons
-````
+```
 
 # 安装python3
 
