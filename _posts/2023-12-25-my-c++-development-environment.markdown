@@ -73,8 +73,7 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
 enabled=1
 ```
 
-
-````shell
+```shell
 yum install -y
 yum install -y ssh vim unzip tar git curl wget cmake  \
         libuuild-devel \
