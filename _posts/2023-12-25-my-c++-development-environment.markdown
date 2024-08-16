@@ -81,6 +81,9 @@ yum install -y ssh vim unzip tar git curl wget cmake  \
         tk-devel       \
         libffi-devel ncurses-libs sqlite-devel bzip2-devel openssl-devel gdbm-devel libdbi-devel libaio-devel zlib-devel \
         xz-devel python-backports-lzma lrzsz git-lfs epel-release centos-release-scl
+
+# centos-release-scl 会遇到上诉类似的问题
+# 将CentOS-SCLo-scl.repo CentOS-SCLo-scl-rh.repo 中的baseurl替换为http://vault.centos.org/centos/7/sclo/$basearch/rh/
 yum install -y devtoolset-8 && echo "source /opt/rh/devtoolset-8/enable" >> /etc/bashrc
 yum install -y epel-release && yum install -y scons
 ````
